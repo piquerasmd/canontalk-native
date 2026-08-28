@@ -107,7 +107,8 @@ final class AppViewModel: ObservableObject {
                 configuration: outbound,
                 apiKey: apiKey,
                 inputDeviceID: mic.objectID,
-                outputDeviceID: injection.objectID
+                outputDeviceID: injection.objectID,
+                progress: { [weak self] value in self?.startupStatus = value }
             )
             do {
                 startupStatus = "Abriendo traducción hacia tus auriculares…"
@@ -115,7 +116,8 @@ final class AppViewModel: ObservableObject {
                     configuration: inbound,
                     apiKey: apiKey,
                     inputDeviceID: capture.objectID,
-                    outputDeviceID: headphones.objectID
+                    outputDeviceID: headphones.objectID,
+                    progress: { [weak self] value in self?.startupStatus = value }
                 )
             } catch {
                 await localToRemote.stop()

@@ -1,5 +1,6 @@
 import Foundation
 import CoreAudio
+import os
 
 private final class BypassGate: @unchecked Sendable {
     private let lock = NSLock()
@@ -17,6 +18,7 @@ private final class BypassGate: @unchecked Sendable {
 
 @MainActor
 final class TranslationPipeline: ObservableObject {
+    private static let logger = Logger(subsystem: "com.canontalk.native", category: "startup")
     @Published private(set) var state: PipelineState = .idle
     @Published private(set) var inputTranscript = ""
     @Published private(set) var outputTranscript = ""
@@ -40,7 +42,8 @@ final class TranslationPipeline: ObservableObject {
         configuration: TranslationDirectionConfig,
         apiKey: String,
         inputDeviceID: AudioDeviceID,
-        outputDeviceID: AudioDeviceID
+        outputDeviceID: AudioDeviceID,
+        progress: @MainActor (String) -> Void
     ) async throws {
         guard state == .idle || isFailed else { return }
         state = .validating
@@ -74,10 +77,19 @@ final class TranslationPipeline: ObservableObject {
         )
         let realtime = RealtimeTranslationSession(callbacks: callbacks)
         self.realtime = realtime
+        let directionLabel = direction.title
+        progress("Conectando OpenAI · \(directionLabel)…")
+        Self.logger.notice("Starting OpenAI session: \(directionLabel, privacy: .public)")
         await realtime.start(configuration: configuration, apiKey: apiKey)
+        Self.logger.notice("OpenAI start returned: \(directionLabel, privacy: .public)")
 
         do {
+            progress("Abriendo salida · \(directionLabel)…")
+            Self.logger.notice("Opening output device: \(directionLabel, privacy: .public)")
             try playback.start(deviceID: outputDeviceID)
+            Self.logger.notice("Output device ready: \(directionLabel, privacy: .public)")
+            progress("Abriendo entrada · \(directionLabel)…")
+            Self.logger.notice("Opening input device: \(directionLabel, privacy: .public)")
             try capture.start(deviceID: inputDeviceID) { data, level in
                 let isBypassed = bypassGate.enabled
                 if isBypassed { audioPlayback.enqueue(data) }
@@ -85,7 +97,10 @@ final class TranslationPipeline: ObservableObject {
                 Task { await realtime.appendAudio(outbound) }
                 Task { @MainActor in target.updateLevel(level) }
             }
+            Self.logger.notice("Input device ready: \(directionLabel, privacy: .public)")
+            progress("Ruta lista · \(directionLabel)")
         } catch {
+            Self.logger.error("Pipeline failed: \(directionLabel, privacy: .public) · \(error.localizedDescription, privacy: .public)")
             await realtime.stop()
             playback.stop()
             self.realtime = nil
