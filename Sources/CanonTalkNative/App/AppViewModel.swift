@@ -13,10 +13,12 @@ final class AppViewModel: ObservableObject {
     @Published private(set) var hasStoredAPIKey = false
     @Published private(set) var isRunning = false
     @Published private(set) var isBusy = false
+    @Published private(set) var startupStatus = ""
     @Published var errorMessage: String?
     @Published private(set) var sessionStartedAt: Date?
 
     private let keychain = KeychainCredentialStore()
+    private let keyValidator = OpenAIKeyValidator()
     private var cancellables: Set<AnyCancellable> = []
 
     init() {
@@ -64,14 +66,19 @@ final class AppViewModel: ObservableObject {
     func start() async {
         guard !isBusy else { return }
         isBusy = true
-        defer { isBusy = false }
+        startupStatus = "Validando configuración…"
+        defer {
+            isBusy = false
+            startupStatus = ""
+        }
 
         do {
             try validateConfiguration()
-            guard await requestMicrophonePermission() else {
-                throw CoreAudioError.unavailable("Concede acceso al micrófono en Ajustes del Sistema.")
-            }
             saveAPIKey()
+            startupStatus = "Validando API key con OpenAI…"
+            try await keyValidator.validate(apiKey)
+            startupStatus = "Esperando permiso del micrófono…"
+            try await requestMicrophonePermission()
 
             guard
                 let mic = devices.device(uid: settings.microphoneUID),
@@ -95,6 +102,7 @@ final class AppViewModel: ObservableObject {
                 direction: .remoteToLocal
             )
 
+            startupStatus = "Abriendo traducción hacia la llamada…"
             try await localToRemote.start(
                 configuration: outbound,
                 apiKey: apiKey,
@@ -102,6 +110,7 @@ final class AppViewModel: ObservableObject {
                 outputDeviceID: injection.objectID
             )
             do {
+                startupStatus = "Abriendo traducción hacia tus auriculares…"
                 try await remoteToLocal.start(
                     configuration: inbound,
                     apiKey: apiKey,
@@ -199,11 +208,61 @@ final class AppViewModel: ObservableObject {
         }
     }
 
-    private func requestMicrophonePermission() async -> Bool {
+    private func requestMicrophonePermission() async throws {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized: return true
-        case .notDetermined: return await AVCaptureDevice.requestAccess(for: .audio)
-        default: return false
+        case .authorized:
+            return
+        case .denied, .restricted:
+            throw MicrophonePermissionError.denied
+        case .notDetermined:
+            let granted = await withCheckedContinuation { continuation in
+                let gate = PermissionContinuationGate(continuation)
+                AVCaptureDevice.requestAccess(for: .audio) { granted in
+                    gate.resume(returning: granted)
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + 20) {
+                    gate.resume(returning: false)
+                }
+            }
+            guard granted else {
+                if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+                    throw MicrophonePermissionError.timedOut
+                }
+                throw MicrophonePermissionError.denied
+            }
+        @unknown default:
+            throw MicrophonePermissionError.denied
+        }
+    }
+}
+
+private final class PermissionContinuationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Bool, Never>?
+
+    init(_ continuation: CheckedContinuation<Bool, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(returning value: Bool) {
+        lock.lock()
+        let current = continuation
+        continuation = nil
+        lock.unlock()
+        current?.resume(returning: value)
+    }
+}
+
+enum MicrophonePermissionError: LocalizedError {
+    case denied
+    case timedOut
+
+    var errorDescription: String? {
+        switch self {
+        case .denied:
+            return "CanonTalk no tiene permiso para usar el micrófono. Actívalo en Ajustes del Sistema → Privacidad y seguridad → Micrófono."
+        case .timedOut:
+            return "macOS no respondió a la solicitud del micrófono en 20 segundos. Restablece el permiso de CanonTalk y vuelve a intentarlo."
         }
     }
 }

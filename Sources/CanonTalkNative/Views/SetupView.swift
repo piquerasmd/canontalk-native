@@ -154,10 +154,17 @@ struct SetupView: View {
             }
             Spacer()
             Button("Actualizar dispositivos") { devices.refresh() }
+            if model.isBusy {
+                ProgressView()
+                    .controlSize(.small)
+                Text(model.startupStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Button {
                 Task { await model.start() }
             } label: {
-                if model.isBusy { ProgressView().controlSize(.small) } else { Text("Iniciar traducción") }
+                Text(model.isBusy ? "Iniciando…" : "Iniciar traducción")
             }
             .keyboardShortcut(.defaultAction)
             .disabled(model.isBusy)

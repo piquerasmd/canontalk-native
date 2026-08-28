@@ -34,4 +34,11 @@ final class CoreTests: XCTestCase {
         XCTAssertNotNil(ConfigurationError.sameLanguage.errorDescription)
         XCTAssertNotNil(ConfigurationError.blackHoleRolesOverlap.errorDescription)
     }
+
+    func testOpenAIKeyErrorMapping() {
+        XCTAssertEqual(OpenAIKeyValidator.error(status: 401, data: Data()), .invalidKey)
+        XCTAssertEqual(OpenAIKeyValidator.error(status: 403, data: Data()), .forbidden)
+        XCTAssertEqual(OpenAIKeyValidator.error(status: 404, data: Data()), .modelUnavailable)
+        XCTAssertEqual(OpenAIKeyValidator.error(status: 429, data: Data()), .rateLimited)
+    }
 }
