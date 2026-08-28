@@ -18,6 +18,7 @@ actor RealtimeTranslationSession {
     private var socket: URLSessionWebSocketTask?
     private var urlSession: URLSession?
     private var receiveTask: Task<Void, Never>?
+    private var connectionTimeoutTask: Task<Void, Never>?
     private var desiredRunning = false
     private var currentState: PipelineState = .idle
     private var configuration: TranslationDirectionConfig?
@@ -34,7 +35,7 @@ actor RealtimeTranslationSession {
         self.apiKey = apiKey
         desiredRunning = true
         reconnectAttempt = 0
-        await connect(reconnecting: false)
+        connect(reconnecting: false)
     }
 
     func appendAudio(_ pcm16: Data) async {
@@ -45,7 +46,7 @@ actor RealtimeTranslationSession {
                 "audio": pcm16.base64EncodedString()
             ], over: socket)
         } catch {
-            await handleConnectionLoss(error)
+            await handleConnectionLoss(error, expectedTask: socket)
         }
     }
 
@@ -68,7 +69,7 @@ actor RealtimeTranslationSession {
         emit(.idle)
     }
 
-    private func connect(reconnecting: Bool) async {
+    private func connect(reconnecting: Bool) {
         guard desiredRunning, let configuration else { return }
         emit(reconnecting ? .reconnecting(attempt: reconnectAttempt) : .connecting)
 
@@ -90,8 +91,15 @@ actor RealtimeTranslationSession {
         socket = task
         task.resume()
 
-        do {
-            try await sendJSON([
+        receiveTask = Task { [weak self] in
+            await self?.receiveLoop(task: task)
+        }
+        connectionTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            await self?.expireConnection(task: task)
+        }
+        Task { [weak self] in
+            await self?.sendInitialConfiguration([
                 "type": "session.update",
                 "session": [
                     "audio": [
@@ -105,14 +113,29 @@ actor RealtimeTranslationSession {
                     ]
                 ]
             ], over: task)
+        }
+    }
+
+    private func sendInitialConfiguration(
+        _ payload: [String: Any],
+        over task: URLSessionWebSocketTask
+    ) async {
+        do {
+            try await sendJSON(payload, over: task)
+            guard desiredRunning, socket === task else { return }
+            connectionTimeoutTask?.cancel()
+            connectionTimeoutTask = nil
             reconnectAttempt = 0
             emit(.active)
-            receiveTask = Task { [weak self] in
-                await self?.receiveLoop(task: task)
-            }
         } catch {
-            await handleConnectionLoss(error)
+            await handleConnectionLoss(error, expectedTask: task)
         }
+    }
+
+    private func expireConnection(task: URLSessionWebSocketTask) async {
+        guard desiredRunning, socket === task, currentState != .active else { return }
+        task.cancel(with: .goingAway, reason: nil)
+        await handleConnectionLoss(RealtimeSessionError.connectionTimedOut, expectedTask: task)
     }
 
     private func receiveLoop(task: URLSessionWebSocketTask) async {
@@ -130,7 +153,7 @@ actor RealtimeTranslationSession {
                 if currentState == .idle { break }
             }
         } catch {
-            if socket === task { await handleConnectionLoss(error) }
+            if socket === task { await handleConnectionLoss(error, expectedTask: task) }
         }
     }
 
@@ -157,13 +180,19 @@ actor RealtimeTranslationSession {
             let details = object["error"] as? [String: Any]
             let message = details?["message"] as? String ?? "OpenAI devolvió un error desconocido."
             callbacks.onError(message)
+            desiredRunning = false
+            closeTransport()
             emit(.failed(message))
         default:
             break
         }
     }
 
-    private func handleConnectionLoss(_ error: Error) async {
+    private func handleConnectionLoss(
+        _ error: Error,
+        expectedTask: URLSessionWebSocketTask?
+    ) async {
+        if let expectedTask, socket !== expectedTask { return }
         closeTransport()
         guard desiredRunning else {
             emit(.idle)
@@ -181,7 +210,7 @@ actor RealtimeTranslationSession {
         emit(.reconnecting(attempt: reconnectAttempt))
         let delays: [UInt64] = [500, 1_000, 2_000, 5_000, 10_000]
         try? await Task.sleep(nanoseconds: delays[reconnectAttempt - 1] * 1_000_000)
-        await connect(reconnecting: true)
+        connect(reconnecting: true)
     }
 
     private func sendJSON(_ object: [String: Any], over task: URLSessionWebSocketTask) async throws {
@@ -196,6 +225,8 @@ actor RealtimeTranslationSession {
     }
 
     private func closeTransport() {
+        connectionTimeoutTask?.cancel()
+        connectionTimeoutTask = nil
         receiveTask?.cancel()
         receiveTask = nil
         socket?.cancel(with: .goingAway, reason: nil)
@@ -210,5 +241,16 @@ actor RealtimeTranslationSession {
         let value = UUID().uuidString.lowercased()
         UserDefaults.standard.set(value, forKey: key)
         return value
+    }
+}
+
+enum RealtimeSessionError: LocalizedError {
+    case connectionTimedOut
+
+    var errorDescription: String? {
+        switch self {
+        case .connectionTimedOut:
+            return "La conexión con OpenAI no respondió en 15 segundos."
+        }
     }
 }

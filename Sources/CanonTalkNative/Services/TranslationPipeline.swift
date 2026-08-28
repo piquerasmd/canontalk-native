@@ -48,8 +48,6 @@ final class TranslationPipeline: ObservableObject {
         inputTranscript = ""
         outputTranscript = ""
 
-        try playback.start(deviceID: outputDeviceID)
-
         let target = self
         let audioPlayback = playback
         let bypassGate = bypass
@@ -79,6 +77,7 @@ final class TranslationPipeline: ObservableObject {
         await realtime.start(configuration: configuration, apiKey: apiKey)
 
         do {
+            try playback.start(deviceID: outputDeviceID)
             try capture.start(deviceID: inputDeviceID) { data, level in
                 let isBypassed = bypassGate.enabled
                 if isBypassed { audioPlayback.enqueue(data) }
