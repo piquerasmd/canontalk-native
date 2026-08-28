@@ -41,4 +41,22 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(OpenAIKeyValidator.error(status: 404, data: Data()), .modelUnavailable)
         XCTAssertEqual(OpenAIKeyValidator.error(status: 429, data: Data()), .rateLimited)
     }
+
+    @MainActor
+    func testBlackHole16HALPlaybackWhenExplicitlyEnabled() throws {
+        guard ProcessInfo.processInfo.environment["RUN_AUDIO_HARDWARE_TESTS"] == "1" else {
+            throw XCTSkip("Set RUN_AUDIO_HARDWARE_TESTS=1 to exercise installed audio hardware.")
+        }
+        let service = AudioDeviceService()
+        guard let device = service.outputDevices.first(where: {
+            $0.name.localizedCaseInsensitiveContains("BlackHole 16ch")
+        }) else {
+            throw XCTSkip("BlackHole 16ch is not installed.")
+        }
+        let playback = DeviceAudioPlayback()
+        let started = Date()
+        try playback.start(deviceID: device.objectID)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 3)
+        playback.stop()
+    }
 }
