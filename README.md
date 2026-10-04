@@ -1,80 +1,98 @@
 # CanonTalk Native
 
-Aplicación macOS para traducción simultánea bidireccional. Una persona ejecuta
-la aplicación junto a Zoom o Google Meet y cada participante recibe únicamente
-el audio destinado a su idioma.
+A native macOS application for real-time bidirectional translation during video calls.
 
-## Requisitos
+One person runs CanonTalk Native alongside Zoom or Google Meet, and each participant hears only the audio translated into their own language.
 
-- macOS 13 o posterior.
-- Xcode 15.2 o posterior para compilar.
-- Auriculares físicos, USB o Bluetooth.
-- Una API key con acceso a `gpt-realtime-translate`.
-- [BlackHole 2ch y BlackHole 16ch](https://existential.audio/blackhole/) instalados como dispositivos separados.
+## Requirements
 
-BlackHole no se distribuye con este proyecto. Su documentación indica que el
-driver está bajo GPL-3.0 y que una integración dentro de otra aplicación debe
-respetar esa licencia o acordarse con Existential Audio.
+- macOS 13 or later.
+- Xcode 15.2 or later to build the application.
+- Physical headphones, either USB or Bluetooth.
+- An OpenAI API key with access to `gpt-realtime-translate`.
+- [BlackHole 2ch and BlackHole 16ch](https://existential.audio/blackhole/) installed as separate audio devices.
 
-## Compilar y probar
+BlackHole is not distributed with this project. According to its documentation, the driver is licensed under GPL-3.0. Any integration or redistribution as part of another application must comply with that license or be separately agreed upon with Existential Audio.
+
+## Build and Run
 
 ```bash
-cd /Users/carlos/Proyectos/canontalk-native
-swift test
 ./scripts/build-app.sh
 open "build/CanonTalk Native.app"
 ```
 
-La primera ejecución solicitará permiso para usar el micrófono. La API key se
-guarda exclusivamente en Keychain.
+On first launch, macOS will ask for permission to access the microphone.
 
-## Configuración de audio
+The OpenAI API key is stored securely and exclusively in macOS Keychain.
 
-En Zoom o Google Meet:
+## Audio Configuration
 
-1. Selecciona **BlackHole 16ch** como micrófono.
-2. Selecciona **BlackHole 2ch** como altavoz.
-3. No selecciones “Same as System” ni un Multi-Output Device.
+### Zoom or Google Meet
 
-En CanonTalk Native:
+1. Select **BlackHole 16ch** as the microphone.
+2. Select **BlackHole 2ch** as the speaker/output device.
+3. Do **not** select **Same as System** or a Multi-Output Device.
 
-1. Elige tu micrófono físico.
-2. Elige tus auriculares como salida local.
-3. Elige BlackHole 2ch como “Audio de la llamada”.
-4. Elige BlackHole 16ch como “Micrófono traducido”.
-5. Selecciona los dos idiomas e inicia la traducción.
+### CanonTalk Native
 
-La persona remota no necesita instalar CanonTalk. Debe usar auriculares o la
-cancelación de eco de su cliente de llamada para evitar realimentación acústica.
+1. Select your physical microphone as the input device.
+2. Select your headphones as the local audio output.
+3. Select **BlackHole 2ch** as **Call Audio**.
+4. Select **BlackHole 16ch** as **Translated Microphone**.
+5. Select the two languages and start the translation session.
 
-## Comportamiento importante
+The remote participant does **not** need to install CanonTalk Native.
 
-- Se mantienen dos sesiones OpenAI independientes, una por dirección.
-- El audio se transmite como PCM16 mono a 24 kHz, incluidos los silencios.
-- Los subtítulos fuente y traducidos se muestran en vivo y se borran al finalizar.
-- Si un dispositivo desaparece o una dirección pierde conexión, no se deja pasar audio original.
-- El control rojo de mantener pulsado permite un bypass original deliberado.
-- Si alguien cambia al idioma del oyente, el modelo puede no devolver audio. Usa el bypass manual para ese fragmento.
+They should use headphones or enable their calling application's echo cancellation to prevent acoustic feedback.
 
-## Idiomas
+## Important Behavior
 
-La interfaz incluye los 13 idiomas de salida documentados para el modelo:
-español, portugués, francés, japonés, ruso, chino, alemán, coreano, hindi,
-indonesio, vietnamita, italiano e inglés.
+- Two independent OpenAI sessions are maintained, one for each translation direction.
+- Audio is streamed as **24 kHz mono PCM16**, including silence.
+- Source and translated captions are displayed live and cleared when the session ends.
+- If an audio device becomes unavailable or one translation direction loses connection, the original audio is **not** passed through automatically.
+- The red press-and-hold control provides a deliberate bypass for sending the original audio.
+- If a speaker temporarily switches to the listener's language, the model may not return translated audio. Use the manual bypass control for that segment.
 
-## Privacidad y coste
+## Supported Languages
 
-La aplicación envía el audio de la conversación a OpenAI mientras la sesión está
-activa. No guarda grabaciones, transcripciones ni telemetría. Consulta las
-políticas de OpenAI antes de utilizarla con terceros y avisa a los participantes.
+The interface includes the 13 output languages documented for the model:
 
-La tarifa documentada de `gpt-realtime-translate` debe comprobarse antes de cada
-uso prolongado. Dos direcciones implican dos sesiones facturadas por duración de audio.
+- Spanish
+- Portuguese
+- French
+- Japanese
+- Russian
+- Chinese
+- German
+- Korean
+- Hindi
+- Indonesian
+- Vietnamese
+- Italian
+- English
 
-## Documentación técnica
+## Privacy and Cost
 
-- [Arquitectura](docs/ARCHITECTURE.md)
+While a translation session is active, CanonTalk Native sends conversation audio to OpenAI for real-time processing.
+
+The application does **not** store:
+
+- Audio recordings
+- Transcripts
+- Conversation history
+- Telemetry
+
+Review OpenAI's applicable privacy and data policies before using CanonTalk Native with third parties, and make sure all participants are informed that their audio is being processed by an external service.
+
+The current pricing for `gpt-realtime-translate` should be verified before long sessions.
+
+Bidirectional translation uses **two independent sessions**, meaning both audio directions are processed and billed separately according to their respective audio usage.
+
+## Technical Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
 - [OpenAI Realtime Translation](https://developers.openai.com/api/docs/guides/realtime-translation)
-- [Cookbook de traducción en vivo](https://developers.openai.com/cookbook/examples/voice_solutions/realtime_translation_guide)
-- [Modelo gpt-realtime-translate](https://developers.openai.com/api/docs/models/gpt-realtime-translate)
-- [Soporte oficial de BlackHole](https://existential.audio/blackhole/support/)
+- [Live Translation Cookbook](https://developers.openai.com/cookbook/examples/voice_solutions/realtime_translation_guide)
+- [gpt-realtime-translate Model](https://developers.openai.com/api/docs/models/gpt-realtime-translate)
+- [Official BlackHole Support](https://existential.audio/blackhole/support/)
